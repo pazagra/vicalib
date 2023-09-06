@@ -1,5 +1,6 @@
 vicalib
 =======
+Fork of Vicalib to obtain the output of the outliers and inliers in the calibration process.
 
 Vicalib is a calibration tool for visual or visual-inertial sensor systems. The system is able to calibrate camera intrinsics for pinhole, polynomial and r-theta camera models, as well as the camera-to-imu extrinsics, imu biases and scale factors for visual inertial system. Dependencies are as follows:
 
