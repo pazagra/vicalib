@@ -146,7 +146,7 @@ class ViCalibrator : public ceres::IterationCallback {
 #endif  // ANDROID
 
     solver_options_.update_state_every_iteration = true;
-    solver_options_.function_tolerance = 1e-6;
+    solver_options_.function_tolerance = 1e-12;
     solver_options_.callbacks.push_back(this);
     solver_options_.trust_region_strategy_type = ceres::DOGLEG;
     problem_.reset(new ceres::Problem(prob_options_));
@@ -392,13 +392,13 @@ class ViCalibrator : public ceres::IterationCallback {
     while (NumFrames() < frame) {
       AddFrame(Sophus::SE3d(), time);
     }
-
+//    std::cout << p_c << std::endl;
     CHECK_LT(camera_id, NumCameras());
 
     // new camera pose to bundle adjust
     CameraAndPose& cp = *cameras_[camera_id];
     Sophus::SE3d& t_wk = t_wk_[frame]->t_wp_;
-
+    costfunc.push_back(p_c);
     // Indicate that we have measurements from this camera at this pose.
     t_wk_[frame]->SetHasMeasurementsFromCam(camera_id, true);
 
@@ -456,7 +456,6 @@ class ViCalibrator : public ceres::IterationCallback {
       LOG(FATAL) << "Don't know how to optimize CameraModel: "
                  << interface->Type();
     }
-
     cost->Params() = {t_wk.data(),                  cp.T_ck.so3().data(),
                       cp.T_ck.translation().data(), cp.camera->GetParams().data()};
 
@@ -642,6 +641,10 @@ class ViCalibrator : public ceres::IterationCallback {
       for (size_t jj = 0; jj < cameras_.size(); ++jj) {
         for (size_t kk = 0; kk < proj_costs_[jj].size(); ++kk) {
           calibu::CostFunctionAndParams& cost = *(proj_costs_[jj][kk]);
+//          std::vector<double*> P = cost.Params();
+//          std::cout << P.size() << std::endl;
+//          for(int i=0; i<P.size(); ++i)
+//            std::cout << *P[i] << ' ';
           projection_residuals_[jj].push_back(problem->AddResidualBlock(
               cost.Cost(), cost.Loss(), cost.Params()));
         }
@@ -710,7 +713,7 @@ class ViCalibrator : public ceres::IterationCallback {
     LOG(INFO) << "Gradient norm is " << summary.gradient_norm;
 
     // Ceres calls this twice per iteration and gradient_norm is 0 (erroneously)
-    static const double kNormThreshold = 1e-9;
+    static const double kNormThreshold = 1e-15;
     if (summary.gradient_norm > 0 && summary.gradient_norm < kNormThreshold) {
       LOG(INFO) << "Terminating optimization as gradient norm = "
                 << summary.gradient_norm << " < " << kNormThreshold;
@@ -860,6 +863,7 @@ class ViCalibrator : public ceres::IterationCallback {
   {
     std::vector<std::vector<ceres::ResidualBlockId>> outliers;
     std::vector<std::vector<ceres::ResidualBlockId>> inliers;
+    std::vector<Eigen::Vector2d> aux;
     outliers.resize(cameras_.size());
     inliers.resize(cameras_.size());
 
@@ -867,6 +871,8 @@ class ViCalibrator : public ceres::IterationCallback {
     for (size_t ii = 0; ii < cameras_.size(); ++ii) {
 
       const double stdev = camera_proj_rmse_[ii];
+      std::cout << "CAMERA " << ii << ": " << stdev << std::endl;
+//      const double threshold = FLAGS_outlier_threshold * stdev;
       const double threshold = FLAGS_outlier_threshold * stdev;
       inliers.reserve(projection_residuals_[ii].size());
 
@@ -878,21 +884,26 @@ class ViCalibrator : public ceres::IterationCallback {
       // compute reprojection errors
       problem_->Evaluate(options, nullptr, &residuals, nullptr,
           nullptr);
-
+//      std::cout << residuals.size() << std::endl;
       // check each reprojection error
       for (size_t kk = 0; kk < projection_residuals_[ii].size(); ++kk)
       {
         const double x = residuals[2 * kk + 0];
         const double y = residuals[2 * kk + 1];
         const double error = sqrt(x * x + y * y);
-
+//        std::vector<double*>* para = new std::vector<double*>;
+//        problem_->GetParameterBlocksForResidualBlock(projection_residuals_[ii][kk],para);
+//        std::cout << para->at(0) << std::endl;
         // check of reproject error exceeds threshold
         if (error > threshold)
         {
+//          std::cout << error << ":" << x << ":" << y << std::endl;
           outliers[ii].push_back(projection_residuals_[ii][kk]);
         }
         else
         {
+//          std::cout << error << ":" << x << ":" << y << std::endl;
+          aux.push_back(costfunc[kk]);
           inliers[ii].push_back(projection_residuals_[ii][kk]);
         }
       }
@@ -912,6 +923,7 @@ class ViCalibrator : public ceres::IterationCallback {
       }
 
       projection_residuals_ = inliers;
+      costfunc = aux;
     }
   }
 
@@ -959,7 +971,7 @@ class ViCalibrator : public ceres::IterationCallback {
           for (size_t ii = 0; ii < cameras_.size(); ++ii) {
             ceres::Problem::EvaluateOptions options;
             options.residual_blocks = projection_residuals_[ii];
-            options.apply_loss_function = false;
+            options.apply_loss_function = true;
             double cost;
             problem_->Evaluate(options, &cost, nullptr, nullptr, nullptr);
             camera_proj_rmse_[ii] =
@@ -1034,8 +1046,34 @@ class ViCalibrator : public ceres::IterationCallback {
           LOG(WARNING) << e.what() << std::endl;
         }
       }
-    }
 
+    }
+    for (size_t ii = 0; ii < costfunc.size(); ++ii) {
+
+    }
+    for (size_t ii = 0; ii < cameras_.size(); ++ii) {
+      std::cout << "_______________________________________________" << std::endl;
+      const double stdev = camera_proj_rmse_[ii];
+//      std::cout << stdev << std::endl;
+      ceres::Problem::EvaluateOptions options;
+      options.residual_blocks = projection_residuals_[ii];
+      options.apply_loss_function = false;
+      std::vector<double> residuals;
+      problem_->Evaluate(options, nullptr, &residuals, nullptr,
+          nullptr);
+//      std::cout << residuals.size() << std::endl;
+      // check each reprojection error
+      for (size_t kk = 0; kk < projection_residuals_[ii].size(); ++kk)
+      {
+        Eigen::Vector2d c = costfunc[kk];
+//        std::cout << c << std::endl;
+        const double x = residuals[2 * kk + 0];
+        const double y = residuals[2 * kk + 1];
+        const double error = sqrt(x * x + y * y);
+        std::cout << c[0] << ":" << c[1] << ":" << error << ":" << x << ":" << y << std::endl;
+
+      }
+    }
     is_running_ = false;
   }
 
@@ -1048,6 +1086,7 @@ class ViCalibrator : public ceres::IterationCallback {
   bool fix_intrinsics_;
 
   std::shared_ptr<ceres::Problem> problem_;
+  std::vector<Eigen::Vector2d> costfunc;
   std::vector<std::shared_ptr<VicalibFrame<double> > > t_wk_;
   std::vector<std::unique_ptr<CameraAndPose> > cameras_;
   std::vector<std::vector<std::unique_ptr<calibu::CostFunctionAndParams> > >

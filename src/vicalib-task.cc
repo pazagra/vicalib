@@ -20,7 +20,7 @@ DEFINE_bool(clip_good, false, "Output proto file of only good tracked images");
 DECLARE_string(imu);              // Defined in vicalib-engine.cc.
 DEFINE_bool(find_time_offset, true,
             "Optimize for the time offset between the IMU and images");
-DEFINE_double(function_tolerance, 1e-6,
+DEFINE_double(function_tolerance, 1e-12,
               "Convergence criteria for the optimizer.");
 
 DEFINE_double(max_fx_diff, 10.0, "Maximum fx difference between calibrations.");
@@ -57,7 +57,7 @@ struct VicalibGuiOptions {
   VicalibGuiOptions() :
       disp_mse("ui.MSE"),
       disp_frame("ui.frame"),
-      disp_thresh("ui.Display Thresh", false),
+      disp_thresh("ui.Display Thresh", true),
       disp_lines("ui.Display Lines", true),
       disp_cross("ui.Display crosses", true),
       disp_bbox("ui.Display bbox", true),
@@ -318,11 +318,12 @@ void VicalibTask::AddImageMeasurements(const std::vector<bool>& valid_frames) {
       }
 
     }
-
+    std::vector<int> Inliers;
     // find camera pose given intrinsics
-    PosePnPRansac(calibrator_.GetCamera(ii).camera, ellipses[ii],
+    Inliers= PosePnPRansac(calibrator_.GetCamera(ii).camera, ellipses[ii],
                   target_[ii].Circles3D(), ellipse_target__map, 0, 0,
                   &t_cw_[ii]);
+    std::cout <<"Image: " << num_frames_ << " Total: " <<  ellipses[ii].size() << " Inliers: " << Inliers.size() << std::endl;
   }
 
   bool any_good = false;

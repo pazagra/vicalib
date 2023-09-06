@@ -32,12 +32,12 @@ DEFINE_bool(paused, false, "Start video paused");
 
 DECLARE_bool(use_system_time); // Defined in vicalib-task.cc
 
-DEFINE_bool(calibrate_imu, true,
+DEFINE_bool(calibrate_imu, false,
             "Calibrate the IMU in addition to the camera.");
 DEFINE_bool(calibrate_intrinsics, true,
             "Calibrate the camera intrinsics as well as the extrinsics.");
 DEFINE_string(device_serial, "-1", "Serial number of device.");
-DEFINE_bool(save_poses,false, "Save calibrated camera poses when done.");
+DEFINE_bool(save_poses,true, "Save calibrated camera poses when done.");
 DEFINE_bool(exit_vicalib_on_finish, true,
             "Exit vicalib when the optimization finishes.");
 DEFINE_int32(frame_skip, 0, "Number of frames to skip between constraints.");
@@ -46,7 +46,7 @@ DEFINE_int32(grid_width, 19, "Width of grid in circles.");
 DEFINE_double(grid_spacing, 0.01355/*0.254 / (19 - 1) meters */,
               "Distance between circles on grid (m).");
 DEFINE_int32(grid_seed, 71, "seed used to generate the grid.");
-DEFINE_bool(has_initial_guess, false,
+DEFINE_bool(has_initial_guess, true,
             "Whether or not the given calibration file has a valid guess.");
 DEFINE_bool(output_conics, false,
             "Output center of found conics to the file ./conics.csv.");
@@ -57,7 +57,7 @@ DEFINE_double(max_reprojection_error, 0.15,  // pixels
               "Maximum allowed reprojection error.");
 DEFINE_int64(num_vicalib_frames, kCalibrateAllPossibleFrames,
              "Number of frames to process before calibration begins.");
-DEFINE_bool(print_poses, false, "Output poses to poses.txt");
+DEFINE_bool(print_poses, true, "Output poses to poses.txt");
 DEFINE_string(output, "cameras.xml",
               "Output XML file to write camera models to.");
 DEFINE_string(output_log_file, "vicalibrator.log",
@@ -97,9 +97,9 @@ DEFINE_double(gyro_sigma, IMU_GYRO_SIGMA,
               "Sigma of gyroscope measurements.");
 DEFINE_double(accel_sigma, IMU_ACCEL_SIGMA,
               "Sigma of accel measurements.");
-DEFINE_bool(remove_outliers, false,
+DEFINE_bool(remove_outliers, true,
               "Re-run estimation after removing conic outliers");
-DEFINE_double(outlier_threshold, 2.0,
+DEFINE_double(outlier_threshold, 1.0,
               "Minimum standard-deviations of reprojection error for conic "
               "outlier classification");
 
@@ -232,7 +232,7 @@ std::shared_ptr<VicalibTask> VicalibEngine::InitTask() {
 
       } else if (type == "rational6" || type == "rational") {
     Eigen::Vector2i size_;
-    Eigen::VectorXd params_(calibu::Rational6Camera<double>::NumParams);
+    Eigen::VectorXd params_(10);
     size_ << w, h;
     params_  << 300, 300, w/2.0, h/2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
     std::shared_ptr<calibu::CameraInterface<double>>
@@ -242,7 +242,7 @@ std::shared_ptr<VicalibTask> VicalibEngine::InitTask() {
 
       } else if (type == "kb4") {
     Eigen::Vector2i size_;
-    Eigen::VectorXd params_(calibu::KannalaBrandtCamera<double>::NumParams);
+    Eigen::VectorXd params_(8);
     size_ << w, h;
     params_  << 300, 300, w/2.0, h/2.0, 0.0, 0.0, 0.0, 0.0;
     std::shared_ptr<calibu::CameraInterface<double>>
@@ -252,7 +252,7 @@ std::shared_ptr<VicalibTask> VicalibEngine::InitTask() {
 
       } else if (type == "linear") {
         Eigen::Vector2i size_;
-        Eigen::VectorXd params_(calibu::LinearCamera<double>::NumParams);
+        Eigen::VectorXd params_(4);
         size_ << w, h;
         params_ << 300, 300, w/2.0, h/2.0;
         std::shared_ptr<calibu::CameraInterface<double>>
@@ -415,7 +415,8 @@ void VicalibEngine::CalibrateAndDrawLoop() {
         for( size_t ii = 0; ii < vicalib_->GetCalibrator().NumFrames(); ii++ ){
           Eigen::Matrix4d t_wk =
             vicalib_->GetCalibrator().GetFrame(ii)->t_wp_.matrix();
-          file << t_wk.row(0) << "     " << t_wk.row(1)
+          float id = vicalib_->GetCalibrator().GetFrame(ii)->time_;
+          file << id << "   "<< t_wk.row(0) << "     " << t_wk.row(1)
             << "     " << t_wk.row(2) << std::endl;
         }
         file.close();
@@ -462,6 +463,15 @@ void VicalibEngine::CreateGrid() {
   }
   else {
     calibu::LoadGridFromPreset(FLAGS_grid_preset,grid_,grid_spacing_,large_rad,small_rad);
+    // Aquí empieza lo nuevo
+    if (!gflags::GetCommandLineFlagInfoOrDie("grid_spacing").is_default)
+      grid_spacing_ = FLAGS_grid_spacing;
+    if (!gflags::GetCommandLineFlagInfoOrDie("grid_large_rad").is_default)
+      large_rad = FLAGS_grid_large_rad;
+    if (!gflags::GetCommandLineFlagInfoOrDie("grid_small_rad").is_default)
+      small_rad = FLAGS_grid_small_rad;
+    // Aquí acaba lo nuevo
+  
   }
 
   if (!FLAGS_output_pattern_file.empty()) {
